@@ -1,0 +1,701 @@
+// ============================================================
+// RAHO - Prisma Schema (Final v4 - Clean)
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── ROLE ────────────────────────────────────────────────────
+
+model Role {
+  roleId      String   @id @default(cuid()) @map("role_id")
+  name        RoleName @unique
+  permissions String[]
+  users       User[]
+
+  @@map("roles")
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  MASTER_ADMIN
+  ADMIN
+  DOCTOR
+  NURSE
+  PATIENT
+}
+
+// ─── USER (AKUN LOGIN) ───────────────────────────────────────
+
+model User {
+  userId        String       @id @default(cuid()) @map("user_id")
+  staffCode     String?      @unique @map("staff_code")
+  email         String       @unique
+  passwordHash  String       @map("password_hash")
+  roleId        String       @map("role_id")
+  role          Role         @relation(fields: [roleId], references: [roleId])
+  branchId      String?      @map("branch_id")
+  branch        Branch?      @relation(fields: [branchId], references: [branchId])
+  partnershipId String?      @map("partnership_id")
+  partnership   Partnership? @relation(fields: [partnershipId], references: [partnershipId])
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  profile             UserProfile?
+  member              Member?
+  auditLogs           AuditLog[]
+  encountersAsDoctor  Encounter[]          @relation("EncounterDoctor")
+  sessionsAsNurse     TreatmentSession[]   @relation("SessionNurse")
+  notifications       Notification[]
+  stockRequests       StockRequest[]
+  uploadedDocuments   MemberDocument[]     @relation("DocumentUploader")
+  materialInputs      MaterialUsage[]      @relation("MaterialInputBy")
+  chatMessagesSent    ChatMessage[]        @relation("MessageSender")
+  grantedAccesses     BranchMemberAccess[] @relation("AccessGrantedBy")
+  therapyPlansCreated SessionTherapyPlan[] @relation("TherapyPlanBy")
+  evaluationsGiven    DoctorEvaluation[]   @relation("EvaluationBy")
+  photosTaken         SessionPhoto[]       @relation("PhotoTakenBy")
+  infusionInputs      InfusionExecution[]  @relation("InfusionFilledBy")
+
+  @@map("users")
+}
+
+model UserProfile {
+  userProfileId  String       @id @default(cuid()) @map("user_profile_id")
+  userId         String       @unique @map("user_id")
+  user           User         @relation(fields: [userId], references: [userId])
+  fullName       String       @map("full_name")
+  phone          String?
+  avatarUrl      String?      @map("avatar_url")
+  jenisProfesi   ProfesiType? @map("jenis_profesi")
+  strNumber      String?      @map("str_number")
+  masaBerlakuStr DateTime?    @map("masa_berlaku_str")
+  speciality     String?
+
+  @@map("user_profiles")
+}
+
+enum ProfesiType {
+  DOKTER
+  NAKES
+}
+
+// ─── CABANG ──────────────────────────────────────────────────
+
+model Branch {
+  branchId       String     @id @default(cuid()) @map("branch_id")
+  branchCode     String     @unique @map("branch_code") 
+  name           String
+  address        String
+  city           String
+  phone          String?
+  tipe           BranchType @default(KLINIK)
+  operatingHours String?    @map("operating_hours")
+  isActive       Boolean    @default(true) @map("is_active")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  users                User[]
+  registeredMembers    Member[]             @relation("MemberRegistrationBranch")
+  memberPackages       MemberPackage[]
+  encounters           Encounter[]
+  inventory            InventoryItem[]
+  branchMemberAccesses BranchMemberAccess[]
+
+  @@map("branches")
+}
+
+enum BranchType {
+  KLINIK
+  HOMECARE
+}
+
+// ─── PARTNERSHIP ─────────────────────────────────────────────
+
+model Partnership {
+  partnershipId  String     @id @default(cuid()) @map("partnership_id")
+  name           String
+  address        String
+  city           String
+  phone          String?
+  tipe           BranchType @default(KLINIK)
+  operatingHours String?    @map("operating_hours")
+  isActive       Boolean    @default(true) @map("is_active")
+  createdAt      DateTime   @default(now()) @map("created_at")
+
+  users     User[]
+  members   Member[]
+  inventory InventoryItem[]
+
+  @@map("partnerships")
+}
+
+// ─── PASIEN (MEMBER) ─────────────────────────────────────────
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  LEAD
+}
+
+enum JenisKelamin {
+  L
+  P
+}
+
+model Member {
+  memberId              String       @id @default(cuid()) @map("member_id")
+  memberNo              String       @unique @map("member_no")
+  userId                String       @unique @map("user_id")
+  user                  User         @relation(fields: [userId], references: [userId])
+  registrationBranchId  String       @map("registration_branch_id")
+  registrationBranch    Branch       @relation("MemberRegistrationBranch", fields: [registrationBranchId], references: [branchId])
+  partnershipId         String?      @map("partnership_id")
+  partnership          Partnership?  @relation(fields: [partnershipId], references: [partnershipId])
+  fullName              String       @map("full_name")
+  nik                   String?      @unique
+  tempatLahir           String?      @map("tempat_lahir")
+  dateOfBirth           DateTime?    @map("date_of_birth")
+  jenisKelamin          JenisKelamin? @map("jenis_kelamin")
+  phone                 String?
+  email                 String?
+  address               String?
+  pekerjaan             String?
+  statusNikah           String?      @map("status_nikah")
+  emergencyContact      String?      @map("emergency_contact")
+  medicalHistory        Json?        @map("medical_history")
+  sumberInfoRaho        String?      @map("sumber_info_raho")
+  status                MemberStatus @default(ACTIVE)
+  isConsentToPhoto      Boolean      @default(false) @map("is_consent_to_photo")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+
+  packages       MemberPackage[]
+  encounters     Encounter[]
+  invoices       Invoice[]
+  documents      MemberDocument[]
+  sessionPhotos  SessionPhoto[]
+  branchAccesses BranchMemberAccess[]
+
+  @@map("members")
+}
+
+// ─── PAKET MEMBER ────────────────────────────────────────────
+
+enum PackageType {
+  BASIC
+  BOOSTER
+}
+
+enum MemberPackageStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+model MemberPackage {
+  memberPackageId String              @id @default(cuid()) @map("member_package_id")
+  memberId        String              @map("member_id")
+  member          Member              @relation(fields: [memberId], references: [memberId])
+  branchId        String              @map("branch_id")
+  branch          Branch              @relation(fields: [branchId], references: [branchId])
+  packageType     PackageType         @map("package_type")
+  status          MemberPackageStatus @default(PENDING_PAYMENT)
+  packageName     String?             @map("package_name")
+  totalSessions   Int                 @map("total_sessions")
+  usedSessions    Int                 @default(0) @map("used_sessions")
+  price           Float
+  paidAt          DateTime?           @map("paid_at")
+  verifiedBy      String?             @map("verified_by")
+  verifiedAt      DateTime?           @map("verified_at")
+  activatedAt     DateTime?           @map("activated_at")
+  expiredAt       DateTime?           @map("expired_at")
+  notes           String?
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  encounters      Encounter[]
+  boosterSessions TreatmentSession[] @relation("SessionBooster")
+
+  @@index([memberId, branchId, status])
+  @@map("member_packages")
+}
+
+// ─── AKSES CABANG KE PASIEN ──────────────────────────────────
+
+model BranchMemberAccess {
+  accessId      String   @id @default(cuid()) @map("access_id")
+  memberId      String   @map("member_id")
+  member        Member   @relation(fields: [memberId], references: [memberId])
+  branchId      String   @map("branch_id")
+  branch        Branch   @relation(fields: [branchId], references: [branchId])
+  grantedBy     String   @map("granted_by")
+  grantedByUser User     @relation("AccessGrantedBy", fields: [grantedBy], references: [userId])
+  grantedAt     DateTime @default(now()) @map("granted_at")
+  isActive      Boolean  @default(true) @map("is_active")
+  notes         String?
+
+  @@unique([memberId, branchId])
+  @@map("branch_member_accesses")
+}
+
+// ─── DOKUMEN PASIEN ──────────────────────────────────────────
+// Hanya gambar (jpg/png/webp). Upload oleh Admin = langsung valid.
+
+enum DocumentType {
+  FORMULIR_PENDAFTARAN
+  SURAT_PERNYATAAN
+  SURAT_KEPUTUSAN
+  PERSETUJUAN_SETELAH_PENJELASAN
+  HASIL_LAB
+  FOTO_KONDISI
+  REKAM_MEDIS_LUAR
+  KTP
+  OTHER
+}
+
+model MemberDocument {
+  memberDocumentId   String            @id @default(cuid()) @map("member_document_id")
+  memberId           String            @map("member_id")
+  member             Member            @relation(fields: [memberId], references: [memberId])
+  documentType       DocumentType      @map("document_type")
+  fileUrl            String            @map("file_url")
+  fileName           String            @map("file_name")
+  mimeType           String            @map("mime_type")
+  fileSizeBytes      Int?              @map("file_size_bytes")
+  relatedEncounterId String?           @map("related_encounter_id")
+  relatedEncounter   Encounter?        @relation(fields: [relatedEncounterId], references: [encounterId])
+  relatedSessionId   String?           @map("related_session_id")
+  relatedSession     TreatmentSession? @relation(fields: [relatedSessionId], references: [treatmentSessionId])
+  uploadedBy         String            @map("uploaded_by")
+  uploader           User              @relation("DocumentUploader", fields: [uploadedBy], references: [userId])
+  uploadedAt         DateTime          @default(now()) @map("uploaded_at")
+
+  @@map("member_documents")
+}
+
+// ─── ENCOUNTER ───────────────────────────────────────────────
+
+enum EncounterType {
+  CONSULTATION
+  TREATMENT
+}
+
+enum EncounterStatus {
+  PLANNED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+model Encounter {
+  encounterId     String          @id @default(cuid()) @map("encounter_id")
+  memberId        String          @map("member_id")
+  member          Member          @relation(fields: [memberId], references: [memberId])
+  doctorId        String          @map("doctor_id")
+  doctor          User            @relation("EncounterDoctor", fields: [doctorId], references: [userId])
+  branchId        String          @map("branch_id")
+  branch          Branch          @relation(fields: [branchId], references: [branchId])
+  memberPackageId String          @map("member_package_id")
+  memberPackage   MemberPackage   @relation(fields: [memberPackageId], references: [memberPackageId])
+  type            EncounterType
+  status          EncounterStatus @default(PLANNED)
+  // Referensi ke CONSULTATION dasar. NULL jika ini sendiri adalah konsultasi.
+  // Bisa merujuk ke consultation dari cabang lain (cross-branch diizinkan).
+  consultationEncounterId String?   @map("consultation_encounter_id")
+  consultationEncounter   Encounter? @relation("TreatmentFromConsultation", fields: [consultationEncounterId], references: [encounterId])
+  treatmentEncounters     Encounter[] @relation("TreatmentFromConsultation")
+  treatmentDate   DateTime?       @map("treatment_date")
+  completedAt     DateTime?       @map("completed_at")
+  assessment      Json?
+  treatmentPlan   Json?           @map("treatment_plan")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  sessions  TreatmentSession[]
+  emrNotes  EMRNote[]
+  diagnoses Diagnosis[]
+  documents MemberDocument[]
+
+  @@map("encounters")
+}
+
+// ─── DIAGNOSIS ───────────────────────────────────────────────
+
+model Diagnosis {
+  diagnosisId              String    @id @default(cuid()) @map("diagnosis_id")
+  encounterId              String    @map("encounter_id")
+  encounter                Encounter @relation(fields: [encounterId], references: [encounterId])
+  doktorPemeriksa          String    @map("doktor_pemeriksa")
+  diagnosa                 String
+  icdPrimer                String?   @map("icd_primer")
+  icdSekunder              String?   @map("icd_sekunder")
+  icdTersier               String?   @map("icd_tersier")
+  keluhanRiwayatSekarang   String?   @map("keluhan_riwayat_sekarang")
+  riwayatPenyakitTerdahulu String?   @map("riwayat_penyakit_terdahulu")
+  riwayatSosialKebiasaan   String?   @map("riwayat_sosial_kebiasaan")
+  riwayatPengobatan        String?   @map("riwayat_pengobatan")
+  pemeriksaanFisik         String?   @map("pemeriksaan_fisik")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  @@map("diagnoses")
+}
+
+// ─── SESI TREATMENT ──────────────────────────────────────────
+
+enum PelaksanaanType {
+  KLINIK
+  HOMECARE
+}
+
+enum SessionStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  POSTPONED
+}
+
+model TreatmentSession {
+  treatmentSessionId String           @id @default(cuid()) @map("treatment_session_id")
+  encounterId        String           @map("encounter_id")
+  encounter          Encounter        @relation(fields: [encounterId], references: [encounterId])
+  nurseId            String?          @map("nurse_id")
+  nurse              User?            @relation("SessionNurse", fields: [nurseId], references: [userId])
+  pelaksanaan        PelaksanaanType? @map("pelaksanaan")
+  infusKe            Int?             @map("infus_ke")
+  // Jika terisi: Basic + Booster dilakukan bersamaan dalam satu kunjungan
+  boosterPackageId   String?          @map("booster_package_id")
+  boosterPackage     MemberPackage?   @relation("SessionBooster", fields: [boosterPackageId], references: [memberPackageId])
+  treatmentDate      DateTime         @map("treatment_date")
+  nextTreatmentDate  DateTime?        @map("next_treatment_date")
+  startedAt          DateTime?        @map("started_at")
+  completedAt        DateTime?        @map("completed_at")
+  status             SessionStatus    @default(PLANNED)
+  keluhanSebelum     String?          @map("keluhan_sebelum")
+  keluhanSesudah     String?          @map("keluhan_sesudah")
+  berhasilInfus      Boolean?         @map("berhasil_infus")
+  healingCrisis      String?          @map("healing_crisis")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  // Diisi Dokter
+  therapyPlan  SessionTherapyPlan?
+  evaluation   DoctorEvaluation?
+  // Diisi Perawat
+  infusionExecution InfusionExecution?
+  vitalSigns        SessionVitalSign[]
+  materialUsages    MaterialUsage[]
+  photos            SessionPhoto[]
+  // Diisi keduanya
+  emrNotes   EMRNote[]
+  documents  MemberDocument[]
+  invoice    Invoice?
+
+  @@map("treatment_sessions")
+}
+
+// ─── RENCANA TERAPI PER SESI (Dokter, SEBELUM sesi) ──────────
+
+model SessionTherapyPlan {
+  sessionTherapyPlanId String           @id @default(cuid()) @map("session_therapy_plan_id")
+  treatmentSessionId   String           @unique @map("treatment_session_id")
+  session              TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  // Dosis direncanakan dokter
+  ifaMg                Float?           @map("ifa_mg")
+  hhoMl                Float            @map("hho_ml")
+  h2Ml                 Float?           @map("h2_ml")
+  noMl                 Float?           @map("no_ml")
+  gasoMl               Float?           @map("gaso_ml")
+  o2Ml                 Float?           @map("o2_ml")
+  notes                String?
+  plannedBy            String           @map("planned_by")
+  planner              User             @relation("TherapyPlanBy", fields: [plannedBy], references: [userId])
+  plannedAt            DateTime         @default(now()) @map("planned_at")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+
+  @@map("session_therapy_plans")
+}
+
+// ─── PELAKSANAAN INFUS AKTUAL (Perawat/Dokter, SELAMA sesi) ──
+
+enum JenisBotol {
+  IFA
+  EDTA
+}
+
+model InfusionExecution {
+  infusionExecutionId   String           @id @default(cuid()) @map("infusion_execution_id")
+  treatmentSessionId    String           @unique @map("treatment_session_id")
+  session               TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  // Dosis aktual - jika berbeda dari plan, deviationNote wajib diisi
+  ifaMgActual           Float?           @map("ifa_mg_actual")
+  hhoMlActual           Float?           @map("hho_ml_actual")
+  h2MlActual            Float?           @map("h2_ml_actual")
+  noMlActual            Float?           @map("no_ml_actual")
+  gasoMlActual          Float?           @map("gaso_ml_actual")
+  o2MlActual            Float?           @map("o2_ml_actual")
+  // Detail fisik infus
+  tglProduksiCairan     DateTime?        @map("tgl_produksi_cairan")
+  jenisBotol            JenisBotol?      @map("jenis_botol")
+  jenisCairan           String?          @map("jenis_cairan")
+  volumeCarrierMl       Int?             @map("volume_carrier_ml")
+  jumlahPenggunaanJarum Int?             @map("jumlah_penggunaan_jarum")
+  // Catatan penyimpangan dari rencana (wajib jika aktual != rencana)
+  deviationNote         String?          @map("deviation_note")
+  filledBy              String           @map("filled_by")
+  filler                User             @relation("InfusionFilledBy", fields: [filledBy], references: [userId])
+  filledAt              DateTime         @default(now()) @map("filled_at")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  @@map("infusion_executions")
+}
+
+// ─── EVALUASI DOKTER (Dokter, SETELAH sesi, opsional) ────────
+
+model DoctorEvaluation {
+  doctorEvaluationId String           @id @default(cuid()) @map("doctor_evaluation_id")
+  treatmentSessionId String           @unique @map("treatment_session_id")
+  session            TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  doctorId           String           @map("doctor_id")
+  doctor             User             @relation("EvaluationBy", fields: [doctorId], references: [userId])
+  kondisiPasien      String?          @map("kondisi_pasien")
+  progress           String?
+  rekomendasiSesi    String?          @map("rekomendasi_sesi")
+  perubahanPlan      Json?            @map("perubahan_plan")
+  notes              String?
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@map("doctor_evaluations")
+}
+
+// ─── TANDA VITAL (Perawat) ────────────────────────────────────
+
+model SessionVitalSign {
+  sessionVitalSignId String           @id @default(cuid()) @map("session_vital_sign_id")
+  treatmentSessionId String           @map("treatment_session_id")
+  session            TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  measuredAt         DateTime?        @map("measured_at")
+  nadi               Int?
+  pi                 Decimal?         @db.Decimal(5, 2)
+  tensiSistolik      Int?             @map("tensi_sistolik")
+  tensiDiastolik     Int?             @map("tensi_diastolik")
+
+  @@map("session_vital_signs")
+}
+
+// ─── FOTO PASIEN (Perawat, hanya jika isConsentToPhoto = true) 
+
+model SessionPhoto {
+  sessionPhotoId     String           @id @default(cuid()) @map("session_photo_id")
+  treatmentSessionId String           @map("treatment_session_id")
+  session            TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  memberId           String           @map("member_id")
+  member             Member           @relation(fields: [memberId], references: [memberId])
+  photoUrl           String           @map("photo_url")
+  fileName           String           @map("file_name")
+  fileSizeBytes      Int?             @map("file_size_bytes")
+  caption            String?
+  takenAt            DateTime?        @map("taken_at")
+  takenBy            String           @map("taken_by")
+  takenByUser        User             @relation("PhotoTakenBy", fields: [takenBy], references: [userId])
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@map("session_photos")
+}
+
+// ─── PEMAKAIAN BAHAN & ALAT (Perawat) ────────────────────────
+
+model MaterialUsage {
+  materialUsageId    String           @id @default(cuid()) @map("material_usage_id")
+  treatmentSessionId String           @map("treatment_session_id")
+  session            TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  inventoryItemId    String           @map("inventory_item_id")
+  item               InventoryItem    @relation(fields: [inventoryItemId], references: [inventoryItemId])
+  quantity           Float
+  unit               String
+  inputBy            String           @map("input_by")
+  inputByUser        User             @relation("MaterialInputBy", fields: [inputBy], references: [userId])
+  createdAt          DateTime         @default(now()) @map("created_at")
+
+  @@map("material_usages")
+}
+
+// ─── CATATAN EMR ─────────────────────────────────────────────
+
+enum EMRNoteType {
+  ASSESSMENT
+  CLINICAL_NOTE
+  OPERATIONAL_NOTE
+  OUTCOME_MONITORING
+}
+
+enum AuthorRole {
+  DOCTOR
+  NURSE
+  ADMIN
+}
+
+model EMRNote {
+  emrNoteId   String            @id @default(cuid()) @map("emr_note_id")
+  encounterId String?           @map("encounter_id")
+  encounter   Encounter?        @relation(fields: [encounterId], references: [encounterId])
+  sessionId   String?           @map("treatment_session_id")
+  session     TreatmentSession? @relation(fields: [sessionId], references: [treatmentSessionId])
+  authorId    String            @map("author_id")
+  authorRole  AuthorRole        @map("author_role")
+  type        EMRNoteType
+  content     Json
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  @@map("emr_notes")
+}
+
+// ─── INVENTORI ───────────────────────────────────────────────
+
+enum InventoryCategory {
+  MEDICINE
+  DEVICE
+  CONSUMABLE
+}
+
+model InventoryItem {
+  inventoryItemId String            @id @default(cuid()) @map("inventory_item_id")
+  branchId        String            @map("branch_id")
+  branch          Branch            @relation(fields: [branchId], references: [branchId])
+  partnershipId   String?           @map("partnership_id")
+  partnership     Partnership?      @relation(fields: [partnershipId], references: [partnershipId])
+  name            String
+  category        InventoryCategory
+  unit            String
+  stock           Float             @default(0)
+  minThreshold    Float             @default(0) @map("min_threshold")
+  location        String?
+  isActive        Boolean           @default(true) @map("is_active")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  usages   MaterialUsage[]
+  requests StockRequest[]
+
+  @@map("inventory_items")
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+}
+
+model StockRequest {
+  stockRequestId  String        @id @default(cuid()) @map("stock_request_id")
+  inventoryItemId String        @map("inventory_item_id")
+  item            InventoryItem @relation(fields: [inventoryItemId], references: [inventoryItemId])
+  requestBy       String        @map("request_by")
+  requester       User          @relation(fields: [requestBy], references: [userId])
+  quantity        Float
+  reason          String?
+  status          RequestStatus @default(PENDING)
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@map("stock_requests")
+}
+
+// ─── INVOICE ─────────────────────────────────────────────────
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  REJECTED
+}
+
+model Invoice {
+  invoiceId          String           @id @default(cuid()) @map("invoice_id")
+  memberId           String           @map("member_id")
+  member             Member           @relation(fields: [memberId], references: [memberId])
+  treatmentSessionId String           @unique @map("treatment_session_id")
+  session            TreatmentSession @relation(fields: [treatmentSessionId], references: [treatmentSessionId])
+  amount             Float
+  status             InvoiceStatus    @default(PENDING)
+  items              Json
+  paidAt             DateTime?        @map("paid_at")
+  verifiedBy         String?          @map("verified_by")
+  notes              String?
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@map("invoices")
+}
+
+// ─── AUDIT LOG ───────────────────────────────────────────────
+
+model AuditLog {
+  auditLogId String   @id @default(cuid()) @map("audit_log_id")
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [userId])
+  action     String
+  resource   String
+  resourceId String?  @map("resource_id")
+  meta       Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
+
+// ─── NOTIFIKASI ──────────────────────────────────────────────
+
+model Notification {
+  notificationId String  @id @default(cuid()) @map("notification_id")
+  userId         String  @map("user_id")
+  user           User    @relation(fields: [userId], references: [userId])
+  title          String
+  body           String
+  type           String
+  isRead         Boolean @default(false) @map("is_read")
+  resourceId     String? @map("resource_id")
+  resourceType   String? @map("resource_type")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+// ─── CHAT ────────────────────────────────────────────────────
+
+model ChatRoom {
+  chatRoomId   String        @id @default(cuid()) @map("chat_room_id")
+  participants String[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  messages ChatMessage[]
+
+  @@map("chat_rooms")
+}
+
+model ChatMessage {
+  chatMessageId String   @id @default(cuid()) @map("chat_message_id")
+  chatRoomId    String   @map("chat_room_id")
+  room          ChatRoom @relation(fields: [chatRoomId], references: [chatRoomId])
+  senderId      String   @map("sender_id")
+  sender        User     @relation("MessageSender", fields: [senderId], references: [userId])
+  content       String?
+  fileUrl       String?  @map("file_url")
+  fileType      String?  @map("file_type")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("chat_messages")
+}

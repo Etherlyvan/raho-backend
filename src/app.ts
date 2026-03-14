@@ -1,0 +1,112 @@
+import "dotenv/config";
+import express        from "express";
+import cors           from "cors";
+import helmet         from "helmet";
+import compression    from "compression";
+import cookieParser   from "cookie-parser";
+import morgan         from "morgan";
+import rateLimit      from "express-rate-limit";
+
+import { env }          from "./config/env";
+import { logger }       from "./utils/logger";
+import { errorHandler } from "./middleware/errorHandler";
+import { prisma }       from "./lib/prisma";
+
+// ─── Routers ─────────────────────────────────────────────────
+import authRoutes         from "./modules/auth/auth.routes";
+import branchRoutes       from "./modules/branch/branch.routes";
+import userRoutes         from "./modules/user/user.routes";
+import memberRoutes       from "./modules/member/member.routes";
+import branchAccessRoutes from "./modules/branch-access/branch-access.routes";
+// Sprint 4+ tambahkan di sini:
+// import memberPackageRoutes from "./modules/member-package/member-package.routes";
+
+const app = express();
+
+// ─── Security ────────────────────────────────────────────────
+app.use(helmet());
+app.use(
+  cors({
+    origin:         env.CORS_ORIGIN,
+    credentials:    true,
+    methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ─── Rate Limiting ────────────────────────────────────────────
+const globalLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             100,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:         { success: false, message: "Terlalu banyak request. Coba lagi nanti." },
+});
+
+const authLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             10,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message:         { success: false, message: "Terlalu banyak percobaan login. Coba lagi nanti." },
+});
+
+app.use(globalLimiter);
+
+// ─── General Middleware ───────────────────────────────────────
+app.use(compression());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
+
+// ─── Health Check ─────────────────────────────────────────────
+app.get("/health", (_req, res) => {
+  res.json({
+    success:     true,
+    message:     "RAHO API is running",
+    environment: env.NODE_ENV,
+    timestamp:   new Date().toISOString(),
+  });
+});
+
+// ─── Routes ───────────────────────────────────────────────────
+app.use(`${env.API_PREFIX}/auth`,          authLimiter, authRoutes);   // Sprint 1
+app.use(`${env.API_PREFIX}/branches`,      branchRoutes);              // Sprint 2
+app.use(`${env.API_PREFIX}/users`,         userRoutes);                // Sprint 2
+app.use(`${env.API_PREFIX}/members`,       memberRoutes);              // Sprint 3
+app.use(`${env.API_PREFIX}/branch-access`, branchAccessRoutes);        // Sprint 3
+
+// ─── 404 Handler ──────────────────────────────────────────────
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: "Endpoint tidak ditemukan" });
+});
+
+// ─── Global Error Handler ─────────────────────────────────────
+app.use(errorHandler);
+
+// ─── Start Server ─────────────────────────────────────────────
+const server = app.listen(env.PORT, async () => {
+  try {
+    await prisma.$connect();
+    logger.info(`Database connected`);
+    logger.info(`Server running  -> http://localhost:${env.PORT}`);
+    logger.info(`Health check    -> http://localhost:${env.PORT}/health`);
+    logger.info(`Environment     -> ${env.NODE_ENV}`);
+  } catch (err) {
+    logger.error("Database connection failed", err);
+    process.exit(1);
+  }
+});
+
+// ─── Graceful Shutdown ────────────────────────────────────────
+process.on("SIGTERM", async () => {
+  logger.info("SIGTERM received. Shutting down gracefully...");
+  server.close(async () => {
+    await prisma.$disconnect();
+    logger.info("Server closed.");
+    process.exit(0);
+  });
+});
+
+export default app;
