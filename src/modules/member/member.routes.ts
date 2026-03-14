@@ -5,6 +5,7 @@ import { validate } from "../../middleware/validate";
 import { createMemberSchema, updateMemberSchema, createDocumentSchema } from "./member.schema";
 import { RoleName } from "../../generated/prisma";
 import { emrController } from '../emr/emr.controller';
+import { invoiceController } from '../invoice/invoice.controller';
 
 const router = Router();
 
@@ -73,6 +74,13 @@ router.get(
   '/:memberId/emr',
   authorize(RoleName.ADMIN, RoleName.MASTER_ADMIN, RoleName.DOCTOR, RoleName.NURSE),
   emrController.findFullEmr,
+);
+
+// GET /api/members/:memberId/invoices
+router.get(
+  '/:memberId/invoices',
+  authorize(RoleName.ADMIN, RoleName.MASTER_ADMIN, RoleName.SUPER_ADMIN, RoleName.DOCTOR, RoleName.NURSE),
+  invoiceController.findByMember,
 );
 
 export default router;
