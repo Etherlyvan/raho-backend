@@ -21,6 +21,8 @@ import branchAccessRoutes from "./modules/branch-access/branch-access.routes";
 import memberPackageRoutes from "./modules/member-package/member-package.routes";
 import encounterRoutes from './modules/encounter/encounter.routes';
 import treatmentSessionRoutes from './modules/treatment-session/treatment-session.routes';
+import inventoryRoutes    from './modules/inventory/inventory.routes';
+import stockRequestRoutes from './modules/stock-request/stock-request.routes';
 
 const app = express();
 
@@ -80,6 +82,8 @@ app.use(`${env.API_PREFIX}/branch-access`, branchAccessRoutes);        // Sprint
 app.use(`${env.API_PREFIX}/members/:memberId/packages`, memberPackageRoutes); // Sprint 4
 app.use(`${env.API_PREFIX}encounters`, encounterRoutes); // Sprint 5
 app.use(`${env.API_PREFIX}treatment-sessions`, treatmentSessionRoutes); // Sprint 6
+app.use(`${env.API_PREFIX}inventory`,       inventoryRoutes);// Sprint 8
+app.use(`${env.API_PREFIX}stock-requests`,  stockRequestRoutes);// Sprint 8
 // ─── 404 Handler ──────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: "Endpoint tidak ditemukan" });
