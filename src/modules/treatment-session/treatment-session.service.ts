@@ -1,7 +1,13 @@
 import { Prisma, RoleName } from '../../generated/prisma';
 import { prisma } from '../../lib/prisma';
 import { AppError } from '../../middleware/errorHandler';
-import { CreateTreatmentSessionInput, SessionQueryInput } from './treatment-session.schema';
+import {
+  CompleteSessionInput,
+  CreateTreatmentSessionInput,
+  PostponeSessionInput,
+  SessionQueryInput,
+  UpdateSessionInput,
+} from './treatment-session.schema';
 
 // ─── Selectors ───────────────────────────────────────────────────────────────
 
@@ -397,4 +403,183 @@ export const treatmentSessionService = {
    */
   findById: async (treatmentSessionId: string) =>
     assertSessionExists(treatmentSessionId),
+  
+  /**
+   * #54 — PATCH /api/treatment-sessions/:sessionId/start
+   *
+   * Business rules:
+   *  - Status harus PLANNED
+   *  - Therapy plan wajib sudah dibuat oleh dokter sebelum sesi dimulai
+   */
+  start: async (treatmentSessionId: string) => {
+    const session = await assertSessionExists(treatmentSessionId);
+
+    if (session.status !== 'PLANNED') {
+      throw new AppError(
+        `Sesi tidak dapat dimulai, status saat ini: ${session.status}`,
+        400,
+      );
+    }
+    if (!session.therapyPlan) {
+      throw new AppError(
+        'Dokter belum membuat rencana terapi (therapy plan). Sesi tidak dapat dimulai.',
+        400,
+      );
+    }
+
+    return prisma.treatmentSession.update({
+      where: { treatmentSessionId },
+      data: {
+        status: 'IN_PROGRESS',
+        startedAt: new Date(),
+      },
+      select: sessionDetailSelect,
+    });
+  },
+
+  /**
+   * #68 — PATCH /api/treatment-sessions/:sessionId/complete
+   *
+   * Business rules:
+   *  - Status harus IN_PROGRESS
+   *  - Auto-increment usedSessions pada MemberPackage (BASIC & BOOSTER jika ada)
+   *  - Auto-generate Invoice dengan status PENDING
+   *  - completedAt = now()
+   */
+  complete: async (treatmentSessionId: string, data: CompleteSessionInput) => {
+    const session = await assertSessionExists(treatmentSessionId);
+
+    if (session.status !== 'IN_PROGRESS') {
+      throw new AppError(
+        `Sesi tidak dapat diselesaikan, status saat ini: ${session.status}`,
+        400,
+      );
+    }
+
+    // Cek apakah invoice sudah ada (idempotency guard)
+    if (session.invoice) {
+      throw new AppError('Invoice untuk sesi ini sudah dibuat sebelumnya', 409);
+    }
+
+    const memberId = session.encounter.member.memberId;
+    const memberPackageId = session.encounter.memberPackage.memberPackageId;
+
+    return prisma.$transaction(async (tx) => {
+      // 1. Update status sesi
+      const updatedSession = await tx.treatmentSession.update({
+        where: { treatmentSessionId },
+        data: {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          keluhanSesudah: data.keluhanSesudah ?? null,
+          berhasilInfus: data.berhasilInfus ?? null,
+          healingCrisis: data.healingCrisis ?? null,
+        },
+        select: sessionDetailSelect,
+      });
+
+      // 2. Increment usedSessions paket BASIC
+      await tx.memberPackage.update({
+        where: { memberPackageId },
+        data: { usedSessions: { increment: 1 } },
+      });
+
+      // 3. Increment usedSessions paket BOOSTER (jika ada)
+      if (session.boosterPackageId) {
+        await tx.memberPackage.update({
+          where: { memberPackageId: session.boosterPackageId },
+          data: { usedSessions: { increment: 1 } },
+        });
+      }
+
+      // 4. Auto-generate Invoice
+      await tx.invoice.create({
+        data: {
+          memberId,
+          treatmentSessionId,
+          amount: data.invoiceAmount,
+          status: 'PENDING',
+          items: data.invoiceItems as Prisma.InputJsonValue,
+          notes: data.invoiceNotes ?? null,
+        },
+      });
+
+      return updatedSession;
+    });
+  },
+
+  /**
+   * #72 — PATCH /api/treatment-sessions/:sessionId/postpone
+   *
+   * Business rules:
+   *  - Status harus PLANNED atau IN_PROGRESS
+   *  - Alasan penundaan wajib diisi
+   *  - Opsional: reschedule ke newTreatmentDate
+   */
+  postpone: async (treatmentSessionId: string, data: PostponeSessionInput) => {
+    const session = await assertSessionExists(treatmentSessionId);
+
+    if (!['PLANNED', 'IN_PROGRESS'].includes(session.status)) {
+      throw new AppError(
+        `Sesi tidak dapat ditunda, status saat ini: ${session.status}`,
+        400,
+      );
+    }
+
+    return prisma.treatmentSession.update({
+      where: { treatmentSessionId },
+      data: {
+        status: 'POSTPONED',
+        nextTreatmentDate: data.newTreatmentDate
+          ? new Date(data.newTreatmentDate)
+          : undefined,
+        // Simpan alasan di healingCrisis sebagai workaround (tidak ada field reason di schema)
+        // Alternatif: tambah field notes di model (direkomendasikan untuk versi berikutnya)
+        healingCrisis: `[POSTPONED] ${data.reason}`,
+      },
+      select: sessionDetailSelect,
+    });
+  },
+
+  /**
+   * #73 — PATCH /api/treatment-sessions/:sessionId
+   * Update umum: keluhan, nurse, pelaksanaan, nextTreatmentDate.
+   * Tidak bisa mengubah status via endpoint ini — gunakan /start, /complete, /postpone.
+   */
+  update: async (treatmentSessionId: string, data: UpdateSessionInput) => {
+    const session = await assertSessionExists(treatmentSessionId);
+
+    if (session.status === 'COMPLETED') {
+      throw new AppError('Sesi yang sudah selesai tidak dapat diubah', 400);
+    }
+
+    // Validasi nurse jika diubah
+    if (data.nurseId) {
+      const nurse = await prisma.user.findUnique({
+        where: { userId: data.nurseId },
+        include: { role: true },
+      });
+      if (!nurse) throw new AppError('Perawat tidak ditemukan', 404);
+      if (!nurse.isActive) throw new AppError('Akun perawat tidak aktif', 400);
+      if (nurse.role.name !== RoleName.NURSE) {
+        throw new AppError('User yang dipilih bukan perawat', 400);
+      }
+    }
+
+    return prisma.treatmentSession.update({
+      where: { treatmentSessionId },
+      data: {
+        nurseId: data.nurseId,
+        pelaksanaan: data.pelaksanaan,
+        keluhanSebelum: data.keluhanSebelum,
+        keluhanSesudah: data.keluhanSesudah,
+        berhasilInfus: data.berhasilInfus,
+        healingCrisis: data.healingCrisis,
+        nextTreatmentDate: data.nextTreatmentDate
+          ? new Date(data.nextTreatmentDate)
+          : undefined,
+      },
+      select: sessionDetailSelect,
+    });
+  },
 };
