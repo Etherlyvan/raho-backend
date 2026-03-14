@@ -12,6 +12,7 @@ import {
 
 import diagnosisRoutes from '../diagnosis/diagnosis.routes';
 import encounterEmrNoteRoutes from '../encounter-emr-note/encounter-emr-note.routes';
+import { emrController } from '../emr/emr.controller';
 
 const router = Router();
 
@@ -52,5 +53,18 @@ router.patch(
 
 router.use('/:encounterId/diagnoses', diagnosisRoutes);
 router.use('/:encounterId/emr-notes', encounterEmrNoteRoutes);
+// #74 — GET /api/encounters/:encounterId/emr-notes
+router.get(
+  '/:encounterId/emr-notes',
+  authorize(RoleName.ADMIN, RoleName.MASTER_ADMIN, RoleName.DOCTOR, RoleName.NURSE),
+  emrController.findNotesByEncounter,
+);
+
+// #76 — GET /api/encounters/:encounterId/summary
+router.get(
+  '/:encounterId/summary',
+  authorize(RoleName.ADMIN, RoleName.MASTER_ADMIN, RoleName.DOCTOR, RoleName.NURSE),
+  emrController.findEncounterSummary,
+);
 
 export default router;

@@ -4,6 +4,7 @@ import { authenticate, authorize } from "../../middleware/auth";
 import { validate } from "../../middleware/validate";
 import { createMemberSchema, updateMemberSchema, createDocumentSchema } from "./member.schema";
 import { RoleName } from "../../generated/prisma";
+import { emrController } from '../emr/emr.controller';
 
 const router = Router();
 
@@ -66,6 +67,12 @@ router.get("/:memberId/documents",
 router.delete("/:memberId/documents/:docId",
   authorize(RoleName.ADMIN, RoleName.MASTER_ADMIN, RoleName.SUPER_ADMIN),
   memberController.deleteDocument
+);
+
+router.get(
+  '/:memberId/emr',
+  authorize(RoleName.ADMIN, RoleName.MASTER_ADMIN, RoleName.DOCTOR, RoleName.NURSE),
+  emrController.findFullEmr,
 );
 
 export default router;
