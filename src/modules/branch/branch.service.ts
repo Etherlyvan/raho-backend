@@ -72,4 +72,86 @@ export const branchService = {
       include: branchInclude,
     });
   },
+  stats: async (branchId: string) => {
+  const branch = await branchService.findById(branchId);
+
+  const { start: todayStart, end: todayEnd } = (() => {
+    const s = new Date(); s.setHours(0, 0, 0, 0);
+    const e = new Date(); e.setHours(23, 59, 59, 999);
+    return { start: s, end: e };
+  })();
+
+  const { start: monthStart, end: monthEnd } = (() => {
+    const now = new Date();
+    return {
+      start: new Date(now.getFullYear(), now.getMonth(), 1),
+      end:   new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
+    };
+  })();
+
+  const [
+    totalMembers,
+    activePackages,
+    todaySessions,
+    monthSessions,
+    monthRevenue,
+    activeStaff,
+  ] = await prisma.$transaction([
+    prisma.member.count({ where: { registrationBranchId: branchId, status: 'ACTIVE' } }),
+    prisma.memberPackage.count({ where: { branchId, status: 'ACTIVE' } }),
+    prisma.treatmentSession.count({
+      where: {
+        encounter: { branchId },
+        treatmentDate: { gte: todayStart, lte: todayEnd },
+        status: { in: ['PLANNED', 'IN_PROGRESS'] },
+      },
+    }),
+    prisma.treatmentSession.count({
+      where: {
+        encounter: { branchId },
+        treatmentDate: { gte: monthStart, lte: monthEnd },
+        status: 'COMPLETED',
+      },
+    }),
+    prisma.invoice.aggregate({
+      where: {
+        session: { encounter: { branchId } },
+        status: 'PAID',
+        paidAt: { gte: monthStart, lte: monthEnd },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.user.count({
+      where: { branchId, isActive: true },
+    }),
+  ]);
+
+  const branchStockAlertResult = await prisma.$queryRaw<[{ count: number }]>`
+    SELECT COUNT(*)::int AS count
+    FROM inventory_items
+    WHERE branch_id = ${branchId}
+      AND is_active  = true
+      AND stock <= min_threshold
+  `;
+  const branchStockAlertCount = branchStockAlertResult[0]?.count ?? 0;
+
+
+  return {
+    branch: {
+      branchId: branch.branchId,
+      name: branch.name,
+      city: branch.city,
+      tipe: branch.tipe,
+    },
+    stats: {
+      totalActiveMembers:  totalMembers,
+      activePackages,
+      todaySessions,
+      monthCompletedSessions: monthSessions,
+      monthRevenue: monthRevenue._sum.amount ?? 0,
+      criticalStockCount:     branchStockAlertCount,
+      activeStaff,
+    },
+  };
+},
 };

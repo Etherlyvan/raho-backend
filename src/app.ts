@@ -26,6 +26,9 @@ import stockRequestRoutes from './modules/stock-request/stock-request.routes';
 import invoiceRoutes from './modules/invoice/invoice.routes';
 import notificationRoutes from './modules/notification/notification.routes';
 import chatRoutes        from './modules/chat/chat.routes';
+import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import reportsRoutes   from './modules/reports/reports.routes';
+import auditLogRoutes  from './modules/audit-log/audit-log.routes';
 
 const app = express();
 
@@ -90,6 +93,10 @@ app.use(`${env.API_PREFIX}stock-requests`,  stockRequestRoutes);// Sprint 8
 app.use(`${env.API_PREFIX}invoices`, invoiceRoutes);// Sprint 9
 app.use(`${env.API_PREFIX}notifications`, notificationRoutes);// Sprint 10
 app.use(`${env.API_PREFIX}chatrooms`,     chatRoutes);// Sprint 10
+app.use(`${env.API_PREFIX}dashboard`,   dashboardRoutes);// Sprint 11
+app.use(`${env.API_PREFIX}reports`,     reportsRoutes);// Sprint 11
+app.use(`${env.API_PREFIX}audit-logs`,  auditLogRoutes);// Sprint 11
+
 // ─── 404 Handler ──────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: "Endpoint tidak ditemukan" });
