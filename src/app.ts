@@ -18,8 +18,7 @@ import branchRoutes       from "./modules/branch/branch.routes";
 import userRoutes         from "./modules/user/user.routes";
 import memberRoutes       from "./modules/member/member.routes";
 import branchAccessRoutes from "./modules/branch-access/branch-access.routes";
-// Sprint 4+ tambahkan di sini:
-// import memberPackageRoutes from "./modules/member-package/member-package.routes";
+import memberPackageRoutes from "./modules/member-package/member-package.routes";
 
 const app = express();
 
@@ -76,6 +75,7 @@ app.use(`${env.API_PREFIX}/branches`,      branchRoutes);              // Sprint
 app.use(`${env.API_PREFIX}/users`,         userRoutes);                // Sprint 2
 app.use(`${env.API_PREFIX}/members`,       memberRoutes);              // Sprint 3
 app.use(`${env.API_PREFIX}/branch-access`, branchAccessRoutes);        // Sprint 3
+app.use(`${env.API_PREFIX}/members/:memberId/packages`, memberPackageRoutes); // Sprint 4
 
 // ─── 404 Handler ──────────────────────────────────────────────
 app.use((_req, res) => {
