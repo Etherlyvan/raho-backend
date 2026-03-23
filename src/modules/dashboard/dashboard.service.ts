@@ -1,8 +1,10 @@
-import { Prisma, RoleName } from '../../generated/prisma';
-import { prisma } from '../../lib/prisma';
-import { AppError } from '../../middleware/errorHandler';
+// src/modules/dashboard/dashboard.service.ts
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+import { Prisma, RoleName } from "../../generated/prisma";
+import { prisma }           from "../../lib/prisma";
+import { AppError }         from "../../middleware/errorHandler";
+
+// ─── Helpers ─────────────────────────────────────────────────
 
 function todayRange() {
   const start = new Date();
@@ -13,32 +15,37 @@ function todayRange() {
 }
 
 function monthRange() {
-  const now = new Date();
+  const now   = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   return { start, end };
 }
 
-// ─── Service ─────────────────────────────────────────────────────────────────
+// ─── Service ─────────────────────────────────────────────────
 
 export const dashboardService = {
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // #103 — GET /api/dashboard/admin
-  // ──────────────────────────────────────────────────────────────────────────
+  // 103 GET /api/dashboard/admin
   adminDashboard: async (requester: { role: RoleName; branchId: string | null }) => {
     const { start: todayStart, end: todayEnd } = todayRange();
     const { start: monthStart, end: monthEnd } = monthRange();
 
-    const branchFilter =
+    const branchId =
       requester.role === RoleName.ADMIN && requester.branchId
-        ? { branchId: requester.branchId }
-        : {};
+        ? requester.branchId
+        : null;
 
-    const encounterBranchFilter =
-      requester.role === RoleName.ADMIN && requester.branchId
-        ? { encounter: { branchId: requester.branchId } }
-        : {};
+    // TreatmentSession → encounter.branchId  ✅
+    const sessionFilter   = branchId ? { encounter: { branchId } } : {};
+
+    // Invoice → session.encounter.branchId  ✅ (Invoice tidak punya relasi "encounter" langsung)
+    const invoiceFilter   = branchId ? { session: { encounter: { branchId } } } : {};
+
+    // StockRequest → item.branchId  ✅
+    const stockFilter     = branchId ? { item: { branchId } } : {};
+
+    // Member → registrationBranchId  ✅
+    const memberFilter    = branchId ? { registrationBranchId: branchId } : {};
 
     const [
       todaySessions,
@@ -50,71 +57,78 @@ export const dashboardService = {
       // Sesi hari ini
       prisma.treatmentSession.count({
         where: {
-          ...encounterBranchFilter,
+          ...sessionFilter,
           treatmentDate: { gte: todayStart, lte: todayEnd },
-          status: { in: ['PLANNED', 'IN_PROGRESS'] },
+          status: { in: ["PLANNED", "IN_PROGRESS"] },
         },
       }),
+
       // Revenue bulan ini (invoice PAID)
       prisma.invoice.aggregate({
         where: {
-          ...encounterBranchFilter,
-          status: 'PAID',
+          ...invoiceFilter,
+          status: "PAID",
           paidAt: { gte: monthStart, lte: monthEnd },
         },
-        _sum: { amount: true },
+        _sum:   { amount: true },
         _count: true,
       }),
+
       // Invoice pending
       prisma.invoice.count({
         where: {
-          ...encounterBranchFilter,
-          status: 'PENDING',
+          ...invoiceFilter,
+          status: "PENDING",
         },
       }),
+
       // Permintaan stok pending
       prisma.stockRequest.count({
         where: {
-          item: branchFilter,
-          status: 'PENDING',
+          ...stockFilter,
+          status: "PENDING",
         },
       }),
+
       // Total pasien aktif
       prisma.member.count({
-        where: { status: 'ACTIVE' },
+        where: {
+          ...memberFilter,
+          status: "ACTIVE",
+        },
       }),
     ]);
 
-    // Stok kritis (di bawah minThreshold) — query terpisah karena raw SQL
+    // Stok kritis (query terpisah — raw SQL)
     const adminStockClause =
-      requester.role === RoleName.ADMIN && requester.branchId
-        ? Prisma.sql`AND branch_id = ${requester.branchId}`
+      branchId
+        ? Prisma.sql`AND branch_id = ${branchId}`
         : Prisma.sql``;
 
     const adminStockAlertResult = await prisma.$queryRaw<[{ count: number }]>`
       SELECT COUNT(*)::int AS count
-      FROM inventory_items
-      WHERE is_active = true
-        AND stock <= min_threshold
-        ${adminStockClause}
+      FROM   inventory_items
+      WHERE  is_active = true
+      AND    stock < min_threshold
+      ${adminStockClause}
     `;
     const adminStockAlertCount = adminStockAlertResult[0]?.count ?? 0;
 
-    // Jadwal sesi hari ini (detail)
+    // Jadwal sesi hari ini (detail, maks 10)
     const todaySessionList = await prisma.treatmentSession.findMany({
       where: {
-        ...encounterBranchFilter,
+        ...sessionFilter,
         treatmentDate: { gte: todayStart, lte: todayEnd },
-        status: { in: ['PLANNED', 'IN_PROGRESS'] },
+        status: { in: ["PLANNED", "IN_PROGRESS"] },
       },
-      take: 10,
-      orderBy: { treatmentDate: 'asc' },
+      take:    10,
+      orderBy: { treatmentDate: "asc" },
       select: {
         treatmentSessionId: true,
-        treatmentDate: true,
-        status: true,
-        infusKe: true,
-        pelaksanaan: true,
+        treatmentDate:      true,
+        status:             true,
+        infusKe:            true,
+        pelaksanaan:        true,
         encounter: {
           select: {
             member: { select: { fullName: true, memberNo: true } },
@@ -125,29 +139,24 @@ export const dashboardService = {
       },
     });
 
-    // Revenue 7 hari terakhir (chart data)
+    // Revenue 7 hari terakhir (chart)
     const branchClause =
-      requester.role === RoleName.ADMIN && requester.branchId
-        ? Prisma.sql`
-            AND i.treatment_session_id IN (
-              SELECT ts.treatment_session_id
-              FROM treatment_sessions ts
-              JOIN encounters e ON ts.encounter_id = e.encounter_id
-              WHERE e.branch_id = ${requester.branchId}
-            )`
+      branchId
+        ? Prisma.sql`AND i.treatment_session_id IN (
+            SELECT ts.treatment_session_id
+            FROM   treatment_sessions ts
+            JOIN   encounters e ON ts.encounter_id = e.encounter_id
+            WHERE  e.branch_id = ${branchId}
+          )`
         : Prisma.sql``;
 
-    const last7Days = await prisma.$queryRaw<
-      { date: string; total: number }[]
-    >`
-      SELECT
-        DATE(paid_at)::text AS date,
-        SUM(amount)::float  AS total
-      FROM invoices i
-      WHERE
-        status  = 'PAID'
-        AND paid_at >= NOW() - INTERVAL '7 days'
-        ${branchClause}
+    const last7Days = await prisma.$queryRaw<{ date: string; total: number }[]>`
+      SELECT DATE(paid_at)::text                AS date,
+             SUM(amount)::float                 AS total
+      FROM   invoices i
+      WHERE  status   = 'PAID'
+      AND    paid_at >= NOW() - INTERVAL '7 days'
+      ${branchClause}
       GROUP BY DATE(paid_at)
       ORDER BY DATE(paid_at) ASC
     `;
@@ -160,18 +169,16 @@ export const dashboardService = {
         totalActiveMembers,
         criticalStockCount: adminStockAlertCount,
         monthRevenue: {
-          total: monthRevenue._sum.amount ?? 0,
+          total:        monthRevenue._sum.amount  ?? 0,
           invoiceCount: monthRevenue._count,
         },
       },
       todaySchedule: todaySessionList,
-      revenueChart: last7Days,
+      revenueChart:  last7Days,
     };
   },
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // #104 — GET /api/dashboard/doctor
-  // ──────────────────────────────────────────────────────────────────────────
+  // 104 GET /api/dashboard/doctor
   doctorDashboard: async (userId: string, branchId: string | null) => {
     const { start: todayStart, end: todayEnd } = todayRange();
     const { start: monthStart, end: monthEnd } = monthRange();
@@ -182,20 +189,17 @@ export const dashboardService = {
           where: {
             encounter: { doctorId: userId },
             treatmentDate: { gte: todayStart, lte: todayEnd },
-            status: { in: ['PLANNED', 'IN_PROGRESS'] },
+            status: { in: ["PLANNED", "IN_PROGRESS"] },
           },
         }),
         prisma.encounter.count({
-          where: {
-            doctorId: userId,
-            status: 'ONGOING',
-          },
+          where: { doctorId: userId, status: "ONGOING" },
         }),
         prisma.treatmentSession.count({
           where: {
             encounter: { doctorId: userId },
             treatmentDate: { gte: monthStart, lte: monthEnd },
-            status: 'COMPLETED',
+            status: "COMPLETED",
           },
         }),
         prisma.doctorEvaluation.count({
@@ -212,17 +216,17 @@ export const dashboardService = {
         encounter: { doctorId: userId },
         treatmentDate: { gte: todayStart, lte: todayEnd },
       },
-      take: 10,
-      orderBy: { treatmentDate: 'asc' },
+      take:    10,
+      orderBy: { treatmentDate: "asc" },
       select: {
         treatmentSessionId: true,
-        treatmentDate: true,
-        status: true,
-        infusKe: true,
+        treatmentDate:      true,
+        status:             true,
+        infusKe:            true,
         therapyPlan: { select: { hhoMl: true, ifaMg: true } },
         encounter: {
           select: {
-            member: { select: { fullName: true, memberNo: true } },
+            member:        { select: { fullName: true, memberNo: true } },
             memberPackage: { select: { packageName: true, packageType: true } },
           },
         },
@@ -234,7 +238,7 @@ export const dashboardService = {
         todaySessions,
         activeEncounters,
         monthCompletedSessions: monthSessions,
-        monthEvaluations: totalEvaluations,
+        monthEvaluations:       totalEvaluations,
         evaluationRate:
           monthSessions > 0
             ? Math.round((totalEvaluations / monthSessions) * 100)
@@ -244,11 +248,9 @@ export const dashboardService = {
     };
   },
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // #105 — GET /api/dashboard/nurse
-  // ──────────────────────────────────────────────────────────────────────────
+  // 105 GET /api/dashboard/nurse
   nurseDashboard: async (branchId: string | null) => {
-    if (!branchId) throw new AppError('Akun perawat tidak terikat ke cabang', 400);
+    if (!branchId) throw new AppError("Akun perawat tidak terikat ke cabang", 400);
 
     const { start: todayStart, end: todayEnd } = todayRange();
 
@@ -261,23 +263,20 @@ export const dashboardService = {
           },
         }),
         prisma.stockRequest.count({
-          where: { item: { branchId }, status: 'PENDING' },
+          where: { item: { branchId }, status: "PENDING" },
         }),
         prisma.treatmentSession.count({
-          where: {
-            encounter: { branchId },
-            status: 'IN_PROGRESS',
-          },
+          where: { encounter: { branchId }, status: "IN_PROGRESS" },
         }),
       ]);
 
-    // Stok kritis — query terpisah
+    // Stok kritis
     const nurseStockAlertResult = await prisma.$queryRaw<[{ count: number }]>`
       SELECT COUNT(*)::int AS count
-      FROM inventory_items
-      WHERE branch_id = ${branchId}
-        AND is_active  = true
-        AND stock <= min_threshold
+      FROM   inventory_items
+      WHERE  branch_id  = ${branchId}
+      AND    is_active  = true
+      AND    stock      < min_threshold
     `;
     const nurseStockAlertCount = nurseStockAlertResult[0]?.count ?? 0;
 
@@ -286,16 +285,16 @@ export const dashboardService = {
       where: {
         encounter: { branchId },
         treatmentDate: { gte: todayStart, lte: todayEnd },
-        status: { in: ['PLANNED', 'IN_PROGRESS'] },
+        status: { in: ["PLANNED", "IN_PROGRESS"] },
       },
-      take: 10,
-      orderBy: { treatmentDate: 'asc' },
+      take:    10,
+      orderBy: { treatmentDate: "asc" },
       select: {
         treatmentSessionId: true,
-        treatmentDate: true,
-        status: true,
-        infusKe: true,
-        pelaksanaan: true,
+        treatmentDate:      true,
+        status:             true,
+        infusKe:            true,
+        pelaksanaan:        true,
         therapyPlan: { select: { hhoMl: true, notes: true } },
         encounter: {
           select: {
@@ -305,15 +304,18 @@ export const dashboardService = {
       },
     });
 
-    // Detail 5 item stok kritis
+    // 5 item stok kritis (detail)
     const criticalStock = await prisma.$queryRaw<
       { name: string; stock: number; minThreshold: number; unit: string }[]
     >`
-      SELECT name, stock, min_threshold AS "minThreshold", unit
-      FROM inventory_items
-      WHERE branch_id = ${branchId}
-        AND is_active  = true
-        AND stock <= min_threshold
+      SELECT name,
+             stock,
+             min_threshold AS "minThreshold",
+             unit
+      FROM   inventory_items
+      WHERE  branch_id = ${branchId}
+      AND    is_active = true
+      AND    stock     < min_threshold
       ORDER BY (stock - min_threshold) ASC
       LIMIT 5
     `;
@@ -323,60 +325,55 @@ export const dashboardService = {
         todaySessions,
         inprogressSessions,
         pendingStockRequests: pendingRequests,
-        criticalStockCount: nurseStockAlertCount,
+        criticalStockCount:   nurseStockAlertCount,
       },
       todaySchedule: sessionList,
       criticalStock,
     };
   },
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // #106 — GET /api/dashboard/patient
-  // ──────────────────────────────────────────────────────────────────────────
+  // 106 GET /api/dashboard/patient
   patientDashboard: async (userId: string) => {
     const member = await prisma.member.findUnique({
-      where: { userId },
+      where:  { userId },
       select: { memberId: true, fullName: true, memberNo: true },
     });
-    if (!member) throw new AppError('Data pasien tidak ditemukan', 404);
+    if (!member) throw new AppError("Data pasien tidak ditemukan", 404);
 
     const { memberId } = member;
 
     const [activePackages, pendingInvoices, nextSession] =
       await prisma.$transaction([
         prisma.memberPackage.findMany({
-          where: { memberId, status: 'ACTIVE' },
+          where:  { memberId, status: "ACTIVE" },
           select: {
             memberPackageId: true,
-            packageType: true,
-            packageName: true,
-            totalSessions: true,
-            usedSessions: true,
-            expiredAt: true,
+            packageType:     true,
+            packageName:     true,
+            totalSessions:   true,
+            usedSessions:    true,
+            expiredAt:       true,
             branch: { select: { name: true, city: true } },
           },
         }),
         prisma.invoice.count({
-          where: {
-            memberId,
-            status: { in: ['PENDING', 'OVERDUE'] },
-          },
+          where: { memberId, status: { in: ["PENDING", "OVERDUE"] } },
         }),
         prisma.treatmentSession.findFirst({
           where: {
             encounter: { memberId },
-            status: 'PLANNED',
+            status:    "PLANNED",
             treatmentDate: { gte: new Date() },
           },
-          orderBy: { treatmentDate: 'asc' },
+          orderBy: { treatmentDate: "asc" },
           select: {
             treatmentSessionId: true,
-            treatmentDate: true,
-            infusKe: true,
-            pelaksanaan: true,
+            treatmentDate:      true,
+            infusKe:            true,
+            pelaksanaan:        true,
             encounter: {
               select: {
-                branch: { select: { name: true, city: true } },
+                branch:        { select: { name: true, city: true } },
                 memberPackage: { select: { packageName: true, packageType: true } },
               },
             },
@@ -386,14 +383,14 @@ export const dashboardService = {
 
     // Riwayat invoice 5 terbaru
     const recentInvoices = await prisma.invoice.findMany({
-      where: { memberId },
-      take: 5,
-      orderBy: { createdAt: 'desc' },
+      where:   { memberId },
+      take:    5,
+      orderBy: { createdAt: "desc" },
       select: {
         invoiceId: true,
-        amount: true,
-        status: true,
-        paidAt: true,
+        amount:    true,
+        status:    true,
+        paidAt:    true,
         createdAt: true,
       },
     });
@@ -401,11 +398,11 @@ export const dashboardService = {
     return {
       member,
       summary: {
-        activePackageCount: activePackages.length,
+        activePackageCount:  activePackages.length,
         pendingInvoiceCount: pendingInvoices,
-        nextSession: nextSession ?? null,
+        nextSession:         nextSession ?? null,
       },
-      activePackages: activePackages.map(p => ({
+      activePackages: activePackages.map((p) => ({
         ...p,
         remainingSessions: p.totalSessions - p.usedSessions,
       })),

@@ -43,21 +43,13 @@ app.use(
   })
 );
 
-// ─── Rate Limiting ────────────────────────────────────────────
+// ─── Rate Limiting ─────────────────────────────────────────────
 const globalLimiter = rateLimit({
   windowMs:        15 * 60 * 1000,
   max:             100,
   standardHeaders: true,
   legacyHeaders:   false,
-  message:         { success: false, message: "Terlalu banyak request. Coba lagi nanti." },
-});
-
-const authLimiter = rateLimit({
-  windowMs:        15 * 60 * 1000,
-  max:             10,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  message:         { success: false, message: "Terlalu banyak percobaan login. Coba lagi nanti." },
+  message: { success: false, message: "Terlalu banyak request. Coba lagi nanti." },
 });
 
 app.use(globalLimiter);
@@ -80,24 +72,35 @@ app.get("/health", (_req, res) => {
 });
 
 // ─── Routes ───────────────────────────────────────────────────
-app.use(`${env.API_PREFIX}/auth`,          authLimiter, authRoutes);   // Sprint 1
+app.use(`${env.API_PREFIX}/auth`,          authRoutes);   // Sprint 1
 app.use(`${env.API_PREFIX}/branches`,      branchRoutes);              // Sprint 2
 app.use(`${env.API_PREFIX}/users`,         userRoutes);                // Sprint 2
 app.use(`${env.API_PREFIX}/members`,       memberRoutes);              // Sprint 3
 app.use(`${env.API_PREFIX}/branch-access`, branchAccessRoutes);        // Sprint 3
 app.use(`${env.API_PREFIX}/members/:memberId/packages`, memberPackageRoutes); // Sprint 4
-app.use(`${env.API_PREFIX}encounters`, encounterRoutes); // Sprint 5
-app.use(`${env.API_PREFIX}treatment-sessions`, treatmentSessionRoutes); // Sprint 6
-app.use(`${env.API_PREFIX}inventory`,       inventoryRoutes);// Sprint 8
-app.use(`${env.API_PREFIX}stock-requests`,  stockRequestRoutes);// Sprint 8
-app.use(`${env.API_PREFIX}invoices`, invoiceRoutes);// Sprint 9
-app.use(`${env.API_PREFIX}notifications`, notificationRoutes);// Sprint 10
-app.use(`${env.API_PREFIX}chatrooms`,     chatRoutes);// Sprint 10
-app.use(`${env.API_PREFIX}dashboard`,   dashboardRoutes);// Sprint 11
-app.use(`${env.API_PREFIX}reports`,     reportsRoutes);// Sprint 11
-app.use(`${env.API_PREFIX}audit-logs`,  auditLogRoutes);// Sprint 11
+app.use(`${env.API_PREFIX}/encounters`, encounterRoutes); // Sprint 5
+app.use(`${env.API_PREFIX}/treatment-sessions`, treatmentSessionRoutes); // Sprint 6
+app.use(`${env.API_PREFIX}/inventory`,       inventoryRoutes);// Sprint 8
+app.use(`${env.API_PREFIX}/stock-requests`,  stockRequestRoutes);// Sprint 8
+app.use(`${env.API_PREFIX}/invoices`, invoiceRoutes);// Sprint 9
+app.use(`${env.API_PREFIX}/notifications`, notificationRoutes);// Sprint 10
+app.use(`${env.API_PREFIX}/chatrooms`,     chatRoutes);// Sprint 10
+app.use(`${env.API_PREFIX}/dashboard`,   dashboardRoutes);// Sprint 11
+app.use(`${env.API_PREFIX}/reports`,     reportsRoutes);// Sprint 11
+app.use(`${env.API_PREFIX}/audit-logs`,  auditLogRoutes);// Sprint 11
 
 // ─── 404 Handler ──────────────────────────────────────────────
+app._router.stack
+  .filter((r: any) => r.name === "router")
+  .forEach((r: any) => {
+    r.handle.stack.forEach((layer: any) => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(", ").toUpperCase();
+        console.log(`[ROUTE] ${methods} ${layer.route.path}`);
+      }
+    });
+  });
+
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: "Endpoint tidak ditemukan" });
 });
