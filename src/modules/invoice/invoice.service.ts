@@ -50,7 +50,7 @@ const invoiceSelect = {
       },
     },
   },
-  verifier: {
+  verifiedByUser: {
     select: {
       userId: true,
       staffCode: true,

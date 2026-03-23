@@ -49,7 +49,8 @@ model User {
   isActive      Boolean      @default(true) @map("is_active")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
-
+  verifiedInvoices   Invoice[]     @relation("InvoiceVerifier")
+  
   profile             UserProfile?
   member              Member?
   auditLogs           AuditLog[]
@@ -638,7 +639,7 @@ model Invoice {
   notes              String?
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
-
+  verifiedByUser     User?         @relation("InvoiceVerifier", fields: [verifiedBy], references: [userId])
   @@map("invoices")
 }
 
