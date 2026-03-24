@@ -206,36 +206,34 @@ export const inventoryService = {
   findAlerts: async (requester: { role: RoleName; branchId: string | null }) => {
     const effectiveBranchId = resolveEffectiveBranchId(requester);
 
-    // Prisma tidak support field comparison langsung (stock <= minThreshold)
-    // Gunakan $queryRaw untuk efisiensi
-    const alerts = await prisma.$queryRaw<
-      Array<{
-        inventoryItemId: string;
-        name: string;
-        category: string;
-        unit: string;
-        stock: number;
-        minThreshold: number;
-        location: string | null;
-        branchId: string;
-      }>
-    >`
+      // Prisma tidak support field comparison langsung (stock <= minThreshold)
+      // Gunakan $queryRaw untuk efisiensi
+      const alerts = await prisma.$queryRaw<Array<{
+      inventoryItemId: string;
+      name:            string;
+      category:        string;
+      unit:            string;
+      stock:           number;
+      minThreshold:    number;
+      location:        string | null;
+      branchId:        string;
+    }>>`
       SELECT
-        "inventoryitemid" AS "inventoryItemId",
+        "inventory_item_id"  AS "inventoryItemId",
         "name",
         "category"::text,
         "unit",
         "stock",
-        "minthreshold" AS "minThreshold",
+        "min_threshold"      AS "minThreshold",
         "location",
-        "branchid" AS "branchId"
-      FROM "inventoryitems"
-      WHERE "stock" <= "minthreshold"
-        AND "isactive" = true
+        "branch_id"          AS "branchId"
+      FROM "inventory_items"
+      WHERE  "stock"      <= "min_threshold"
+        AND  "is_active"   = true
         ${effectiveBranchId
-          ? Prisma.sql`AND "branchid" = ${effectiveBranchId}`
+          ? Prisma.sql`AND "branch_id" = ${effectiveBranchId}`
           : Prisma.empty}
-      ORDER BY ("stock" - "minthreshold") ASC
+      ORDER BY ("stock" - "min_threshold") ASC
     `;
 
     return {

@@ -126,12 +126,12 @@ export const branchService = {
     }),
   ]);
 
-  const branchStockAlertResult = await prisma.$queryRaw<[{ count: number }]>`
+  const branchStockAlertResult = await prisma.$queryRaw<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
-    FROM inventory_items
-    WHERE branch_id = ${branchId}
-      AND is_active  = true
-      AND stock <= min_threshold
+    FROM   "inventory_items"
+    WHERE  "branch_id"    = ${branchId}
+      AND  "is_active"    = true
+      AND  "stock"        < "min_threshold"
   `;
   const branchStockAlertCount = branchStockAlertResult[0]?.count ?? 0;
 

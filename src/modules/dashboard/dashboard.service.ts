@@ -100,17 +100,16 @@ export const dashboardService = {
     ]);
 
     // Stok kritis (query terpisah — raw SQL)
-    const adminStockClause =
-      branchId
-        ? Prisma.sql`AND branch_id = ${branchId}`
-        : Prisma.sql``;
+    const adminStockClause = branchId
+      ? Prisma.sql`AND "branch_id" = ${branchId}`
+      : Prisma.sql``;
 
-    const adminStockAlertResult = await prisma.$queryRaw<[{ count: number }]>`
+    const adminStockAlertResult = await prisma.$queryRaw<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
-      FROM   inventory_items
-      WHERE  is_active = true
-      AND    stock < min_threshold
-      ${adminStockClause}
+      FROM   "inventory_items"
+      WHERE  "is_active" = true
+        AND  "stock"     < "min_threshold"
+        ${adminStockClause}
     `;
     const adminStockAlertCount = adminStockAlertResult[0]?.count ?? 0;
 
@@ -140,23 +139,22 @@ export const dashboardService = {
     });
 
     // Revenue 7 hari terakhir (chart)
-    const branchClause =
-      branchId
-        ? Prisma.sql`AND i.treatment_session_id IN (
-            SELECT ts.treatment_session_id
-            FROM   treatment_sessions ts
-            JOIN   encounters e ON ts.encounter_id = e.encounter_id
-            WHERE  e.branch_id = ${branchId}
-          )`
-        : Prisma.sql``;
+    const branchClause = branchId
+      ? Prisma.sql`AND i.treatment_session_id IN (
+          SELECT ts.treatment_session_id
+          FROM   treatment_sessions ts
+          JOIN   encounters e ON ts.encounter_id = e.encounter_id
+          WHERE  e.branch_id = ${branchId}
+        )`
+      : Prisma.sql``;
 
     const last7Days = await prisma.$queryRaw<{ date: string; total: number }[]>`
-      SELECT DATE(paid_at)::text                AS date,
-             SUM(amount)::float                 AS total
+      SELECT DATE(paid_at)::text AS date,
+            SUM(amount)::float  AS total
       FROM   invoices i
-      WHERE  status   = 'PAID'
-      AND    paid_at >= NOW() - INTERVAL '7 days'
-      ${branchClause}
+      WHERE  status  = 'PAID'
+        AND  paid_at > NOW() - INTERVAL '7 days'
+        ${branchClause}
       GROUP BY DATE(paid_at)
       ORDER BY DATE(paid_at) ASC
     `;
